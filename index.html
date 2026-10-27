@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>장벽없는마을상점</title>
+<meta name="description" content="은평구에서 경사로, 점자메뉴판, AAC 의사소통판 같은 편의시설을 갖춘 상점 목록">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="loadbar" id="loadbar" hidden></div>
+<nav class="topnav">장벽없는마을상점</nav>
+<main class="wrap">
+  <p class="lede">은평구에서 경사로, 점자메뉴판, AAC 의사소통판 같은 편의시설을 갖춘 상점 <span id="total">0</span>곳입니다.</p>
+  <div id="results"></div>
+</main>
+
+<div class="dock-bg" id="dockBg"></div>
+<div class="dock" id="dock">
+  <div class="dock-in">
+    <div class="row1">
+      <span class="sum" aria-live="polite"><strong id="count">0</strong>곳<span id="cond" class="cond"></span></span>
+      <button class="txtbtn" id="reset" type="button" hidden>초기화</button>
+      <button class="morebtn" id="more" type="button" aria-expanded="false">더보기</button>
+    </div>
+    <div class="filters">
+      <div class="col"><div class="col-label" id="cat-label">분류</div><div class="chips" id="cats" role="group" aria-labelledby="cat-label"></div></div>
+      <div class="col"><div class="col-label" id="amen-label">편의시설</div><div class="chips" id="amens" role="group" aria-labelledby="amen-label"></div></div>
+    </div>
+    <input id="q" class="search" type="search" placeholder="상호나 주소로 찾기 (예: 약국, 연서로)" aria-label="상호나 주소로 찾기">
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
