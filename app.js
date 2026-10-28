@@ -137,7 +137,7 @@ function update() {
 }
 
 // ===== 하단 독 =====
-// 세 가지 모양: normal(첫 화면, 필터 2줄) · open(더보기, 위로 늘어남) · mini(찾기 + '검색옵션' 버튼만)
+// 세 가지 모양: normal(첫 화면, 필터 2줄) · open(더보기, 위로 늘어남) · mini(찾기 + '검색옵션' 버튼만, 누르면 open)
 let mode = "normal";
 function setMode(m) {
   const was = mode; mode = m;
@@ -179,7 +179,7 @@ $("dock").addEventListener("touchcancel", endDrag);
 function padBody() { if (!$("dock").classList.contains("open")) document.body.style.paddingBottom = $("dock").offsetHeight + 16 + "px"; }
 if ("ResizeObserver" in window) new ResizeObserver(padBody).observe($("dock")); else padBody();
 $("more").onclick = () => setMode(mode === "open" ? "mini" : "open");
-$("opt").onclick = () => setMode("normal");
+$("opt").onclick = () => setMode("open");
 $("dockBg").onclick = () => setMode("normal");
 $("reset").onclick = () => { state = { cat: "전체", amens: new Set(), q: "" }; $("q").value = ""; update(); };
 $("q").addEventListener("input", e => { state.q = e.target.value; renderList(); });
