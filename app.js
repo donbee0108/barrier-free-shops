@@ -123,6 +123,7 @@ function renderList() {
   const cond = [state.cat !== "전체" ? state.cat : "", ...state.amens].filter(Boolean);
   $("cond").textContent = cond.length ? " · " + cond.join(", ") : "";
   $("reset").hidden = !cond.length && !state.q;
+  $("optn").textContent = cond.length; $("optn").hidden = !cond.length;
   if (!hits.length) { $("results").innerHTML = '<p class="empty">조건에 맞는 상점이 없습니다.<br>편의시설 선택을 줄여 보세요.</p>'; return; }
   $("results").innerHTML = CATS.filter(c => state.cat === "전체" || c === state.cat).map(c => {
     const g = hits.filter(s => s.cat === c);
@@ -136,16 +137,50 @@ function update() {
 }
 
 // ===== 하단 독 =====
-function setOpen(on) {
-  $("dock").classList.toggle("open", on); $("dockBg").classList.toggle("open", on);
-  $("more").textContent = on ? "접기" : "더보기"; $("more").setAttribute("aria-expanded", String(on));
-  if (!on) setTimeout(padBody, 350); // 접히는 움직임(.3초)이 끝난 뒤 높이로 맞춤
+// 세 가지 모양: normal(첫 화면, 필터 2줄) · open(더보기, 위로 늘어남) · mini(찾기 + '검색옵션' 버튼만)
+let mode = "normal";
+function setMode(m) {
+  const was = mode; mode = m;
+  $("dock").classList.toggle("open", m === "open"); $("dock").classList.toggle("mini", m === "mini");
+  $("dockBg").classList.toggle("open", m === "open");
+  $("more").textContent = m === "open" ? "접기" : "더보기"; $("more").setAttribute("aria-expanded", String(m === "open"));
+  if (was === "open") setTimeout(padBody, 350); // 접히는 움직임(.3초)이 끝난 뒤 높이로 맞춤
 }
+// 독을 손가락으로 끌기: 위로 = 늘리기(접힌 모양이면 첫 화면으로), 아래로 = 접기.
+// 필터 칸 안 목록이 위로 더 넘어갈 수 있으면 아래로 끌 때 목록 넘기기가 먼저
+let drag = null;
+$("dock").addEventListener("touchstart", e => {
+  drag = e.touches.length === 1 ? { y: e.touches[0].clientY, list: e.target.closest(".chips"), mine: null, dy: 0 } : null;
+}, { passive: true });
+$("dock").addEventListener("touchmove", e => {
+  if (!drag) return;
+  const dy = e.touches[0].clientY - drag.y;
+  if (drag.mine === null) {
+    if (!dy) return;
+    drag.mine = dy < 0 ? mode !== "open" : mode !== "mini" && !(drag.list && drag.list.scrollTop > 0);
+    if (drag.mine) $("dock").classList.add("dragging");
+  }
+  if (!drag.mine) return;
+  e.preventDefault(); drag.dy = dy;
+  $("dock").style.transform = dy > 0 ? "translateY(" + Math.min(dy, 120) * .5 + "px)" : "";
+}, { passive: false });
+function endDrag() {
+  if (!drag) return;
+  if (drag.mine) {
+    $("dock").classList.remove("dragging"); $("dock").style.transform = "";
+    if (drag.dy < -30) setMode(mode === "mini" ? "normal" : "open");
+    else if (drag.dy > 30) setMode("mini");
+  }
+  drag = null;
+}
+$("dock").addEventListener("touchend", endDrag);
+$("dock").addEventListener("touchcancel", endDrag);
 // 독 높이만큼 본문 아래 여백을 줘서 마지막 카드가 가려지지 않게 함(접힌 높이 기준)
 function padBody() { if (!$("dock").classList.contains("open")) document.body.style.paddingBottom = $("dock").offsetHeight + 16 + "px"; }
 if ("ResizeObserver" in window) new ResizeObserver(padBody).observe($("dock")); else padBody();
-$("more").onclick = () => setOpen(!$("dock").classList.contains("open"));
-$("dockBg").onclick = () => setOpen(false);
+$("more").onclick = () => setMode(mode === "open" ? "mini" : "open");
+$("opt").onclick = () => setMode("normal");
+$("dockBg").onclick = () => setMode("normal");
 $("reset").onclick = () => { state = { cat: "전체", amens: new Set(), q: "" }; $("q").value = ""; update(); };
 $("q").addEventListener("input", e => { state.q = e.target.value; renderList(); });
 
