@@ -106,7 +106,8 @@ function matches(s) {
   if (state.cats.size && !state.cats.has(s.cat)) return false;
   for (const a of state.amens) if (!s.amen.includes(a)) return false;
   const q = state.q.trim().replace(/\s+/g, "");
-  return !q || (s.name + s.addr + s.info + s.cat).replace(/\s+/g, "").includes(q);
+  // tags: 시트 '검색어' 칸(화면에는 안 보임)
+  return !q || (s.name + s.addr + s.info + s.cat + (s.tags || "")).replace(/\s+/g, "").includes(q);
 }
 // 전화 걸기는 첫 번째 번호로("(내선3)" 같은 메모는 뺌)
 function dialable(tel) { const m = tel.match(/0\d{1,3}[-.\s)]*\d{3,4}[-.\s]*\d{4}/); return m ? m[0].replace(/[^\d-]/g, "") : ""; }
