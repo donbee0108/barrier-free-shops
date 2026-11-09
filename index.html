@@ -9,11 +9,24 @@
 </head>
 <body>
 <div class="loadbar" id="loadbar" hidden></div>
-<nav class="topnav">장벽없는마을상점</nav>
+<nav class="topnav">
+  <span class="brand">장벽없는마을상점</span>
+  <div class="tabs" id="tabs" role="group" aria-label="보기" hidden>
+    <button type="button" id="tabList" aria-pressed="true">목록</button><button type="button" id="tabMap" aria-pressed="false">지도</button>
+  </div>
+</nav>
 <main class="wrap">
   <p class="lede">은평구에서 경사로, 점자메뉴판, AAC 의사소통판 같은 편의시설을 갖춘 상점 <span id="total">0</span>곳입니다.</p>
   <div id="results"></div>
 </main>
+
+<div class="mapwrap" id="mapwrap" hidden>
+  <div id="map"></div>
+  <button class="mapmiss" id="mapmiss" type="button" hidden>지도에 없는 상점 <span id="mapmissN">0</span>곳 · 목록에서 보기</button>
+  <p class="mapnote" id="mapnote" role="status" hidden></p>
+  <button class="locbtn" id="locbtn" type="button">내 위치</button>
+  <div class="mapcard" id="mapcard" hidden></div>
+</div>
 
 <div class="dock-bg" id="dockBg"></div>
 <div class="dock" id="dock">

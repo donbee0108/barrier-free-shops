@@ -13,6 +13,8 @@ const TEL_HINT = IS_PHONE ? "눌러서 전화" : "눌러서 복사";
 let DATA = [];
 let CATS = [];
 let state = { cat: "전체", amens: new Set(), q: "" };
+// 지도 보기 상태(아래 "지도 보기"에서 씀)
+let view = "list", map = null, markers = [], myDot = null, myPos = null, cardShop = null, kakaoReady = null, noteTimer = 0;
 try {
   const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || "null");
   if (saved) { state.cat = saved.cat || "전체"; state.amens = new Set(saved.amens || []); }
@@ -118,6 +120,7 @@ function card(s) {
     "</div></li>";
 }
 function renderList() {
+  drawMarkers();
   const hits = DATA.filter(matches);
   $("count").textContent = hits.length;
   const cond = [state.cat !== "전체" ? state.cat : "", ...state.amens].filter(Boolean);
@@ -175,8 +178,14 @@ function endDrag() {
 }
 $("dock").addEventListener("touchend", endDrag);
 $("dock").addEventListener("touchcancel", endDrag);
-// 독 높이만큼 본문 아래 여백을 줘서 마지막 카드가 가려지지 않게 함(접힌 높이 기준)
-function padBody() { if (!$("dock").classList.contains("open")) document.body.style.paddingBottom = $("dock").offsetHeight + 16 + "px"; }
+// 독 높이만큼 본문 아래 여백을 줘서 마지막 카드가 가려지지 않게 함(접힌 높이 기준). 지도도 독 바로 위까지만
+function padBody() {
+  if ($("dock").classList.contains("open")) return;
+  const h = $("dock").offsetHeight;
+  document.body.style.paddingBottom = h + 16 + "px";
+  document.documentElement.style.setProperty("--dock-h", h + "px");
+  if (map) requestAnimationFrame(() => map.relayout());
+}
 if ("ResizeObserver" in window) new ResizeObserver(padBody).observe($("dock")); else padBody();
 $("more").onclick = () => setMode(mode === "open" ? "mini" : "open");
 $("opt").onclick = () => setMode("open");
@@ -184,8 +193,8 @@ $("dockBg").onclick = () => setMode("normal");
 $("reset").onclick = () => { state = { cat: "전체", amens: new Set(), q: "" }; $("q").value = ""; update(); };
 $("q").addEventListener("input", e => { state.q = e.target.value; renderList(); });
 
-// 전화번호: 휴대폰은 tel: 링크 그대로 전화, 컴퓨터는 눌러서 복사
-$("results").addEventListener("click", e => {
+// 전화번호: 휴대폰은 tel: 링크 그대로 전화, 컴퓨터는 눌러서 복사(목록·지도 카드 모두)
+document.addEventListener("click", e => {
   const b = e.target.closest(".tel");
   if (!b || IS_PHONE) return;
   e.preventDefault();
@@ -194,5 +203,122 @@ $("results").addEventListener("click", e => {
   const fallback = () => { const r = document.createRange(); r.selectNodeContents(b.querySelector(".num")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); hint.textContent = "Ctrl+C로 복사"; };
   try { navigator.clipboard.writeText(b.dataset.tel).then(done, fallback); } catch (err) { fallback(); }
 });
+
+// ===== 지도 보기 =====
+// 카카오 지도는 지도 탭을 처음 열 때만 불러옴. 내 위치는 이 휴대폰 안에서만 쓰고 어디에도 저장·전송하지 않음
+const KAKAO_KEY = (window.APP_CONFIG && window.APP_CONFIG.KAKAO_JS_KEY) || "";
+const EP_CENTER = [37.6027, 126.9291]; // 은평구청 부근
+const EP_BOUNDS = { s: 37.56, n: 37.67, w: 126.87, e: 126.99 };
+
+function loadKakao() {
+  if (!kakaoReady) {
+    kakaoReady = new Promise((ok, fail) => {
+      const s = document.createElement("script");
+      s.src = "https://dapi.kakao.com/v2/maps/sdk.js?autoload=false&appkey=" + encodeURIComponent(KAKAO_KEY);
+      s.onload = () => (window.kakao && kakao.maps ? kakao.maps.load(ok) : fail(new Error("kakao")));
+      s.onerror = () => fail(new Error("load"));
+      document.head.appendChild(s);
+    });
+    kakaoReady.catch(() => { kakaoReady = null; });
+  }
+  return kakaoReady;
+}
+function setView(v) {
+  view = v;
+  document.body.classList.toggle("mapview", v === "map");
+  $("mapwrap").hidden = v !== "map";
+  $("tabList").setAttribute("aria-pressed", String(v === "list"));
+  $("tabMap").setAttribute("aria-pressed", String(v === "map"));
+  if (v === "map") openMap(); else { hideCard(); window.scrollTo(0, 0); }
+}
+async function openMap() {
+  try { await loadKakao(); } catch (e) { note("지도를 불러오지 못했습니다. 잠시 뒤 다시 눌러 주세요.", true); return; }
+  $("mapnote").hidden = true;
+  if (view !== "map") return;
+  if (map) { map.relayout(); drawMarkers(); return; }
+  map = new kakao.maps.Map($("map"), { center: new kakao.maps.LatLng(EP_CENTER[0], EP_CENTER[1]), level: 7 });
+  kakao.maps.event.addListener(map, "click", hideCard);
+  drawMarkers();
+  fitAll();
+  locate();
+}
+function placedHits() { return DATA.filter(matches).filter(s => s.lat != null && s.lng != null); }
+function drawMarkers() {
+  if (!map || view !== "map") return;
+  markers.forEach(m => m.setMap(null));
+  const hits = DATA.filter(matches), placed = placedHits();
+  // 같은 건물(같은 좌표)의 상점은 핀 하나로 묶고, 누르면 함께 보여 줌
+  const spots = {};
+  placed.forEach(s => (spots[s.lat + "," + s.lng] = spots[s.lat + "," + s.lng] || []).push(s));
+  markers = Object.values(spots).map(group => {
+    const m = new kakao.maps.Marker({ map: map, position: new kakao.maps.LatLng(group[0].lat, group[0].lng), title: group.map(s => s.name).join(", "), clickable: true });
+    kakao.maps.event.addListener(m, "click", () => showCard(group[0]));
+    return m;
+  });
+  const miss = hits.length - placed.length;
+  $("mapmissN").textContent = miss; $("mapmiss").hidden = !miss;
+  if (cardShop && !placed.includes(cardShop)) hideCard(); else if (cardShop) showCard(cardShop);
+}
+// 고른 조건의 상점이 모두 보이게 지도 맞추기(없으면 은평구 가운데)
+function fitAll() {
+  const placed = placedHits();
+  if (!placed.length) { map.setCenter(new kakao.maps.LatLng(EP_CENTER[0], EP_CENTER[1])); map.setLevel(7); return; }
+  const b = new kakao.maps.LatLngBounds();
+  placed.forEach(s => b.extend(new kakao.maps.LatLng(s.lat, s.lng)));
+  map.setBounds(b, 40, 20, 40, 20);
+}
+function inEunpyeong(p) { return p.lat >= EP_BOUNDS.s && p.lat <= EP_BOUNDS.n && p.lng >= EP_BOUNDS.w && p.lng <= EP_BOUNDS.e; }
+function locate() {
+  if (!navigator.geolocation) { note("위치를 쓸 수 없어 은평구 전체를 보여 드립니다."); return; }
+  $("locbtn").classList.add("busy"); $("locbtn").textContent = "찾는 중…";
+  navigator.geolocation.getCurrentPosition(p => {
+    resetLocBtn();
+    myPos = { lat: p.coords.latitude, lng: p.coords.longitude };
+    const ll = new kakao.maps.LatLng(myPos.lat, myPos.lng);
+    if (!myDot) myDot = new kakao.maps.CustomOverlay({ map: map, position: ll, content: '<div class="me" title="내 위치"></div>', zIndex: 5 });
+    else myDot.setPosition(ll);
+    if (!inEunpyeong(myPos)) { note("지금 계신 곳 근처에는 상점이 없어 은평구 전체를 보여 드립니다."); fitAll(); return; }
+    map.setLevel(4); map.panTo(ll);
+    if (cardShop) showCard(cardShop); // 거리 다시 표시
+  }, () => {
+    resetLocBtn();
+    note("위치를 쓸 수 없어 은평구 전체를 보여 드립니다.");
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+}
+function resetLocBtn() { $("locbtn").classList.remove("busy"); $("locbtn").textContent = "내 위치"; }
+// 지도 위 짧은 안내. stay면 사라지지 않음(지도를 못 불러왔을 때)
+function note(msg, stay) {
+  $("mapnote").textContent = msg; $("mapnote").hidden = false;
+  clearTimeout(noteTimer); if (!stay) noteTimer = setTimeout(() => { $("mapnote").hidden = true; }, 4000);
+}
+// 두 점 사이 거리(m)
+function meters(a, b) {
+  const R = 6371000, rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad, dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function distText(s) {
+  if (!myPos || !inEunpyeong(myPos)) return "";
+  const m = meters(myPos, s);
+  return "내 위치에서 약 " + (m < 1000 ? Math.round(m / 10) * 10 + "m" : (m / 1000).toFixed(1) + "km");
+}
+function showCard(s) {
+  cardShop = s;
+  const group = placedHits().filter(x => x.lat === s.lat && x.lng === s.lng);
+  const head = [distText(s), group.length > 1 ? "같은 건물 " + group.length + "곳" : ""].filter(Boolean).join(" · ");
+  $("mapcard").innerHTML = '<div class="cardhead"><span class="dist">' + esc(head) + '</span><button class="txtbtn" type="button" id="cardclose">닫기</button></div><ul class="list">' + group.map(card).join("") + "</ul>";
+  $("mapcard").hidden = false;
+  $("cardclose").onclick = hideCard;
+}
+function hideCard() { cardShop = null; $("mapcard").hidden = true; }
+
+if (KAKAO_KEY) {
+  $("tabs").hidden = false;
+  $("tabList").onclick = () => setView("list");
+  $("tabMap").onclick = () => setView("map");
+  $("locbtn").onclick = () => (map ? locate() : null);
+  $("mapmiss").onclick = () => setView("list");
+}
 
 load();
