@@ -12,12 +12,13 @@ const TEL_HINT = IS_PHONE ? "눌러서 전화" : "눌러서 복사";
 
 let DATA = [];
 let CATS = [];
-let state = { cat: "전체", amens: new Set(), q: "" };
+let state = { cats: new Set(), amens: new Set(), q: "" }; // cats가 비어 있으면 "전체"
 // 지도 보기 상태(아래 "지도 보기"에서 씀)
 let view = "list", map = null, markers = [], myDot = null, myPos = null, cardShop = null, kakaoReady = null, noteTimer = 0;
 try {
   const saved = JSON.parse(localStorage.getItem(FILTER_KEY) || "null");
-  if (saved) { state.cat = saved.cat || "전체"; state.amens = new Set(saved.amens || []); }
+  // 예전에 하나만 고르던 때 저장한 값(cat)도 받아 줌
+  if (saved) { state.cats = new Set(saved.cats || (saved.cat && saved.cat !== "전체" ? [saved.cat] : [])); state.amens = new Set(saved.amens || []); }
 } catch (e) {}
 
 function esc(t) { return String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -62,7 +63,7 @@ function setData(shops, fresh) {
   DATA = shops;
   document.body.classList.remove("nodata");
   CATS = ordered([...new Set(DATA.map(s => s.cat))], CAT_ORDER);
-  if (fresh && state.cat !== "전체" && !CATS.includes(state.cat)) state.cat = "전체";
+  if (fresh) state.cats = new Set([...state.cats].filter(c => CATS.includes(c)));
   $("total").textContent = DATA.length;
   buildChips(fresh);
   update();
@@ -88,17 +89,21 @@ function buildChips(fresh) {
   DATA.forEach(s => s.amen.forEach(a => amenCount[a] = (amenCount[a] || 0) + 1));
   if (fresh) state.amens = new Set([...state.amens].filter(a => amenCount[a]));
   $("cats").innerHTML = ""; $("amens").innerHTML = "";
-  ["전체", ...CATS].forEach(c => $("cats").appendChild(chip(c, c === "전체" ? DATA.length : DATA.filter(s => s.cat === c).length, "cat", () => { state.cat = c; update(); })));
+  ["전체", ...CATS].forEach(c => $("cats").appendChild(chip(c, c === "전체" ? DATA.length : DATA.filter(s => s.cat === c).length, "cat", () => {
+    // 전체를 누르면 고른 분류를 모두 풂. 분류는 여러 개 함께 고를 수 있음
+    if (c === "전체") state.cats.clear(); else state.cats.has(c) ? state.cats.delete(c) : state.cats.add(c);
+    update();
+  })));
   ordered(Object.keys(amenCount), AMEN_ORDER).forEach(a => $("amens").appendChild(chip(a, amenCount[a], "amen", () => {
     state.amens.has(a) ? state.amens.delete(a) : state.amens.add(a); update();
   })));
 }
 function syncChips() {
-  $("cats").querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.key === state.cat)));
+  $("cats").querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.key === "전체" ? !state.cats.size : state.cats.has(b.dataset.key))));
   $("amens").querySelectorAll(".chip").forEach(b => b.setAttribute("aria-pressed", String(state.amens.has(b.dataset.key))));
 }
 function matches(s) {
-  if (state.cat !== "전체" && s.cat !== state.cat) return false;
+  if (state.cats.size && !state.cats.has(s.cat)) return false;
   for (const a of state.amens) if (!s.amen.includes(a)) return false;
   const q = state.q.trim().replace(/\s+/g, "");
   return !q || (s.name + s.addr + s.info + s.cat).replace(/\s+/g, "").includes(q);
@@ -123,19 +128,19 @@ function renderList() {
   drawMarkers();
   const hits = DATA.filter(matches);
   $("count").textContent = hits.length;
-  const cond = [state.cat !== "전체" ? state.cat : "", ...state.amens].filter(Boolean);
+  const cond = [...CATS.filter(c => state.cats.has(c)), ...state.amens];
   $("cond").textContent = cond.length ? " · " + cond.join(", ") : "";
   $("reset").hidden = !cond.length && !state.q;
   $("optn").textContent = cond.length; $("optn").hidden = !cond.length;
   if (!hits.length) { $("results").innerHTML = '<p class="empty">조건에 맞는 상점이 없습니다.<br>편의시설 선택을 줄여 보세요.</p>'; return; }
-  $("results").innerHTML = CATS.filter(c => state.cat === "전체" || c === state.cat).map(c => {
+  $("results").innerHTML = CATS.filter(c => !state.cats.size || state.cats.has(c)).map(c => {
     const g = hits.filter(s => s.cat === c);
     if (!g.length) return "";
     return '<section class="group"><h2>' + esc(c) + '<span class="n">' + g.length + '곳</span></h2><ul class="list">' + g.map(card).join("") + "</ul></section>";
   }).join("");
 }
 function update() {
-  try { localStorage.setItem(FILTER_KEY, JSON.stringify({ cat: state.cat, amens: [...state.amens] })); } catch (e) {}
+  try { localStorage.setItem(FILTER_KEY, JSON.stringify({ cats: [...state.cats], amens: [...state.amens] })); } catch (e) {}
   syncChips(); renderList();
 }
 
@@ -190,7 +195,7 @@ if ("ResizeObserver" in window) new ResizeObserver(padBody).observe($("dock")); 
 $("more").onclick = () => setMode(mode === "open" ? "mini" : "open");
 $("opt").onclick = () => setMode("open");
 $("dockBg").onclick = () => setMode("normal");
-$("reset").onclick = () => { state = { cat: "전체", amens: new Set(), q: "" }; $("q").value = ""; update(); };
+$("reset").onclick = () => { state = { cats: new Set(), amens: new Set(), q: "" }; $("q").value = ""; update(); };
 $("q").addEventListener("input", e => { state.q = e.target.value; renderList(); });
 
 // 전화번호: 휴대폰은 tel: 링크 그대로 전화, 컴퓨터는 눌러서 복사(목록·지도 카드 모두)
